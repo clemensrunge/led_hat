@@ -36,6 +36,10 @@ unsigned long millis()
 
 void delay(unsigned long ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
 
+long random(long howbig) { return howbig <= 0 ? 0 : std::rand() % howbig; }
+long random(long howsmall, long howbig) { return howsmall >= howbig ? howsmall : howsmall + random(howbig - howsmall); }
+void randomSeed(unsigned long seed) { std::srand(seed); }
+
 /* ---- String ---- */
 String::String(long n, int base)
 {

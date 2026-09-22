@@ -24,6 +24,9 @@ void pinMode(uint8_t pin, uint8_t mode);
 void digitalWrite(uint8_t pin, uint8_t val);
 unsigned long millis();
 void delay(unsigned long ms);
+long random(long howbig);
+long random(long howsmall, long howbig);
+void randomSeed(unsigned long seed);
 
 inline bool isDigit(int c) { return c >= '0' && c <= '9'; }
 

@@ -35,7 +35,7 @@ sim/build/led_hat_sim                 # --arc DEG, --screenshot out.bmp (saves a
   - `matrix.show()` publishes the frame to the display.
   - Both UARTs are in-memory queues.
 - The sketch runs in its own thread (`setup()`, then `loop()` forever). `sim/main.cpp` draws the latest shown frame on a CPU-projected cylinder with `SDL_RenderGeometry`, or flat with Tab. It also provides the ImGui console, with one tab per UART.
-- If you add an Arduino API to the sketch, add a stub for it under `sim/arduino/`. On the host `int` is 32-bit, not 16-bit as on AVR, and integer division by zero crashes instead of returning garbage.
+- If you add an Arduino API to the sketch, add a stub for it under `sim/arduino/` (`random()` uses the host `rand()`). On the host `int` is 32-bit, not 16-bit as on AVR, and integer division by zero crashes instead of returning garbage.
 
 ## Architecture
 
