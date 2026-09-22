@@ -20,7 +20,8 @@
 uint8_t fp4s = 40;
 
 /*OperationModes*/
-/*0=menu ; 1=testmode ; 2=ticker ; 3=dancing banana ; 4=pac-man ; 5=space invaders*/
+/*0=menu ; 1=testmode ; 2=ticker ; 3=dancing banana ; 4=pac-man ; 5=space invaders ;
+  6=fire ; 7=plasma ; 8=game of life ; 9=snow*/
 uint8_t mode = 1;
 uint8_t lastmode = 1;
 uint8_t menue_input_interface; /* 0=bluetooth 1= serial */
@@ -365,6 +366,48 @@ PROGMEM const char cannon_sprite[2][3 + 1] = {
   " X ",
   "XXX"
 };
+/*sin(i * 2pi / 256) scaled to 0..255*/
+PROGMEM const uint8_t sine_table[256] = {
+  128, 131, 134, 137, 140, 143, 146, 149, 152, 155, 158, 162, 165, 167, 170, 173,
+  176, 179, 182, 185, 188, 190, 193, 196, 198, 201, 203, 206, 208, 211, 213, 215,
+  218, 220, 222, 224, 226, 228, 230, 232, 234, 235, 237, 238, 240, 241, 243, 244,
+  245, 246, 248, 249, 250, 250, 251, 252, 253, 253, 254, 254, 254, 255, 255, 255,
+  255, 255, 255, 255, 254, 254, 254, 253, 253, 252, 251, 250, 250, 249, 248, 246,
+  245, 244, 243, 241, 240, 238, 237, 235, 234, 232, 230, 228, 226, 224, 222, 220,
+  218, 215, 213, 211, 208, 206, 203, 201, 198, 196, 193, 190, 188, 185, 182, 179,
+  176, 173, 170, 167, 165, 162, 158, 155, 152, 149, 146, 143, 140, 137, 134, 131,
+  128, 124, 121, 118, 115, 112, 109, 106, 103, 100,  97,  93,  90,  88,  85,  82,
+   79,  76,  73,  70,  67,  65,  62,  59,  57,  54,  52,  49,  47,  44,  42,  40,
+   37,  35,  33,  31,  29,  27,  25,  23,  21,  20,  18,  17,  15,  14,  12,  11,
+   10,   9,   7,   6,   5,   5,   4,   3,   2,   2,   1,   1,   1,   0,   0,   0,
+    0,   0,   0,   0,   1,   1,   1,   2,   2,   3,   4,   5,   5,   6,   7,   9,
+   10,  11,  12,  14,  15,  17,  18,  20,  21,  23,  25,  27,  29,  31,  33,  35,
+   37,  40,  42,  44,  47,  49,  52,  54,  57,  59,  62,  65,  67,  70,  73,  76,
+   79,  82,  85,  88,  90,  93,  97, 100, 103, 106, 109, 112, 115, 118, 121, 124
+};
+
+#define FireTicksPerStep  1
+#define LifeTicksPerGen   4     //frames per generation
+#define LifeMaxGens       200   //reseed after this many generations even if still changing
+#define LifePauseGens     6     //generations to show the final state before reseeding
+#define LifeDensity       35    //percent of cells alive when seeding
+#define SnowFlakes        24
+
+/*Scratch memory shared by the procedural effects, only the current mode uses it.
+  RAM is tight: the NeoPixel buffer alone takes 3 bytes per pixel.*/
+union
+{
+  uint8_t heat[(PixelCount + 1) / 2];       //fire: 4 bits per pixel
+  uint8_t life[3][(PixelCount + 7) / 8];    //game of life: 1 bit per cell, 3 generations
+  struct
+  {
+    uint8_t x[SnowFlakes];                  //quarter columns
+    uint8_t y[SnowFlakes];                  //sixteenth rows
+    uint8_t speed[SnowFlakes];
+    uint8_t pile[PixelWidth];               //snow lying on the bottom row
+  } snow;
+} effect;
+
 PROGMEM const char cannon_boom[2][2][3 + 1] = {
   { "X X",
     " X " },
@@ -439,6 +482,10 @@ void loop()
    case 3: banana(init); break;
    case 4: pacman(init); break;
    case 5: invaders(init); break;
+   case 6: fire(init); break;
+   case 7: plasma(init); break;
+   case 8: life(init); break;
+   case 9: snow(init); break;
   }
   init = 0;
   do
@@ -508,7 +555,11 @@ uint8_t menu()
         menuePrintln(F("3:  Dancing banana"));
         menuePrintln(F("4:  Pac-Man"));
         menuePrintln(F("5:  Space Invaders"));
-        mode = SoftSintInput(1, 5);
+        menuePrintln(F("6:  Fire"));
+        menuePrintln(F("7:  Plasma"));
+        menuePrintln(F("8:  Game of Life"));
+        menuePrintln(F("9:  Snow"));
+        mode = SoftSintInput(1, 9);
         if (mode != lastmode)
         {
          change |= (1 << 0);
@@ -1386,6 +1437,230 @@ void invaders(uint8_t init)
     drawWrappedSprite( &cannon_boom[(tick >> 1) & 1][0][0], 3, 2, PixelHeight - 2, cannonX, false, PalBoom );
   else
     drawWrappedSprite( &cannon_sprite[0][0], 3, 2, PixelHeight - 2, cannonX, false, PalCannon );
+}
+
+void clearMatrix()
+{
+  for (uint8_t p = 0; p < PixelCount; p++)
+  {
+    matrix.setPixelColor( p, 0 );
+  }
+}
+
+uint8_t sin8(uint8_t angle)
+{
+  return pgm_read_byte_near( &sine_table[angle] );
+}
+
+/*Fire: heat rises from the bottom row, spreads sideways and cools*/
+uint8_t heatGet(uint8_t x, uint8_t y)
+{
+  uint16_t i = y * PixelWidth + x;
+  return ( effect.heat[i >> 1] >> ((i & 1) << 2) ) & 0x0F;
+}
+
+void heatSet(uint8_t x, uint8_t y, uint8_t h)
+{
+  uint16_t i = y * PixelWidth + x;
+  uint8_t shift = (i & 1) << 2;
+  effect.heat[i >> 1] = ( effect.heat[i >> 1] & ~(0x0F << shift) ) | (h << shift);
+}
+
+uint32_t heatColor(uint8_t h)
+{
+  if( h <= 5 )
+    return matrix.Color(h * 10, 0, 0);                              //black to red
+  if( h <= 10 )
+    return matrix.Color(50, (h - 5) * 6, 0);                        //red to orange
+  return matrix.Color(55, 30 + (h - 10) * 4, (h - 10) * 3);         //orange to yellow-white
+}
+
+void fire(uint8_t init)
+{
+  if( init & (1 << 0) )
+    memset( effect.heat, 0, sizeof(effect.heat) );
+
+  /*Top down, so each row still reads the old values of the row below it*/
+  for( uint8_t y = 0; y < PixelHeight - 1; y++ )
+  {
+    for( uint8_t x = 0; x < PixelWidth; x++ )
+    {
+      uint8_t sum = heatGet( (x + PixelWidth - 1) % PixelWidth, y + 1 ) + 2 * heatGet( x, y + 1 )
+                  + heatGet( (x + 1) % PixelWidth, y + 1 );
+      uint8_t h = sum / 4;
+      uint8_t cool = random(5);
+      heatSet( x, y, h > cool ? h - cool : 0 );
+    }
+  }
+  /*Fuel: the bottom row flickers randomly*/
+  for( uint8_t x = 0; x < PixelWidth; x++ )
+    heatSet( x, PixelHeight - 1, random(5, 16) );
+
+  for( uint8_t y = 0; y < PixelHeight; y++ )
+    for( uint8_t x = 0; x < PixelWidth; x++ )
+      matrix.setPixelColor( xyToNum( x, y ), heatColor( heatGet( x, y ) ) );
+}
+
+/*Plasma: overlapping sine waves mapped to the color wheel. The x terms use whole
+  periods around the hat, so there is no seam where the matrix wraps.*/
+void plasma(uint8_t init)
+{
+  static uint8_t t1 = 0, t2 = 0, t3 = 0;
+  t1 += 3;
+  t2 += 2;
+  t3 -= 1;
+
+  for( uint8_t y = 0; y < PixelHeight; y++ )
+  {
+    for( uint8_t x = 0; x < PixelWidth; x++ )
+    {
+      uint8_t a = (uint16_t)x * 256 / PixelWidth;
+      uint16_t v = sin8( (uint8_t)(a * 2 + t1) ) + sin8( (uint8_t)(y * 37 + t2) )
+                 + sin8( (uint8_t)(a + y * 23 + t3) ) + sin8( (uint8_t)(a * 3 - y * 16 - t2) );
+      uint32_t c = Wheel( (uint8_t)(v >> 2) + t3 );
+      matrix.setPixelColor( xyToNum( x, y ), (c >> 2) & 0x3F3F3F );
+    }
+  }
+}
+
+/*Conway's Game of Life on a cylinder: columns wrap around the hat, top and bottom are edges*/
+boolean lifeGet(const uint8_t *grid, int8_t x, int8_t y)
+{
+  if( y < 0 || y >= PixelHeight )
+    return false;
+  uint16_t i = y * PixelWidth + (x + PixelWidth) % PixelWidth;
+  return grid[i >> 3] & (1 << (i & 7));
+}
+
+void lifeSet(uint8_t *grid, uint8_t x, uint8_t y, boolean alive)
+{
+  uint16_t i = y * PixelWidth + x;
+  if( alive )
+    grid[i >> 3] |= (1 << (i & 7));
+  else
+    grid[i >> 3] &= ~(1 << (i & 7));
+}
+
+void life(uint8_t init)
+{
+  static uint8_t cur = 0;       //which of the 3 grids holds the current generation
+  static uint8_t gen = 0;
+  static uint8_t timer = 0;
+  static uint8_t pause = 0;     //generations left before reseeding
+  boolean reseed = init & (1 << 0);
+
+  if( !reseed && ++timer >= LifeTicksPerGen )
+  {
+    timer = 0;
+    if( pause > 0 )
+    {
+      reseed = --pause == 0;
+    }
+    else
+    {
+      uint8_t *now = effect.life[cur];
+      uint8_t *prev = effect.life[(cur + 2) % 3];
+      uint8_t *next = effect.life[(cur + 1) % 3];   //overwrites the oldest generation
+      uint8_t population = 0;
+      for( uint8_t y = 0; y < PixelHeight; y++ )
+      {
+        for( uint8_t x = 0; x < PixelWidth; x++ )
+        {
+          uint8_t n = 0;
+          for( int8_t dy = -1; dy <= 1; dy++ )
+            for( int8_t dx = -1; dx <= 1; dx++ )
+              if( (dx || dy) && lifeGet( now, x + dx, y + dy ) )
+                n++;
+          boolean alive = n == 3 || (n == 2 && lifeGet( now, x, y ));
+          lifeSet( next, x, y, alive );
+          if( alive )
+            population++;
+        }
+      }
+      /*Stale: extinct, still life, blinking between two states, or just running too long*/
+      if( population == 0 || !memcmp( next, now, sizeof(effect.life[0]) )
+          || !memcmp( next, prev, sizeof(effect.life[0]) ) || ++gen >= LifeMaxGens )
+        pause = LifePauseGens;
+      cur = (cur + 1) % 3;
+    }
+  }
+
+  if( reseed )
+  {
+    memset( effect.life, 0, sizeof(effect.life) );
+    cur = 0;
+    gen = 0;
+    pause = 0;
+    for( uint8_t y = 0; y < PixelHeight; y++ )
+      for( uint8_t x = 0; x < PixelWidth; x++ )
+        lifeSet( effect.life[cur], x, y, random(100) < LifeDensity );
+  }
+
+  /*Newborn cells are bright, survivors teal, cells that just died glow dim red*/
+  const uint8_t *now = effect.life[cur];
+  const uint8_t *prev = effect.life[(cur + 2) % 3];
+  for( uint8_t y = 0; y < PixelHeight; y++ )
+  {
+    for( uint8_t x = 0; x < PixelWidth; x++ )
+    {
+      boolean a = lifeGet( now, x, y ), b = lifeGet( prev, x, y );
+      uint32_t c = 0;
+      if( a && !b )
+        c = matrix.Color(20, 45, 30);
+      else if( a )
+        c = matrix.Color(0, 25, 20);
+      else if( b )
+        c = matrix.Color(10, 0, 3);
+      matrix.setPixelColor( xyToNum( x, y ), c );
+    }
+  }
+}
+
+/*Snow: flakes at three depths drift in a slowly turning wind and pile up on the bottom row*/
+void snowRespawn(uint8_t i, uint8_t y)
+{
+  effect.snow.x[i] = random(PixelWidth * 4);
+  effect.snow.y[i] = y;
+  effect.snow.speed[i] = random(1, 4);
+}
+
+void snow(uint8_t init)
+{
+  static uint16_t tick = 0;
+  if( init & (1 << 0) )
+  {
+    for( uint8_t i = 0; i < SnowFlakes; i++ )
+      snowRespawn( i, random((PixelHeight - 1) * 16) );
+    memset( effect.snow.pile, 0, sizeof(effect.snow.pile) );
+  }
+  tick++;
+  int16_t wind = (int16_t)sin8( tick >> 1 ) - 128;
+
+  clearMatrix();
+  for( uint8_t x = 0; x < PixelWidth; x++ )
+  {
+    if( (tick & 3) == 0 && effect.snow.pile[x] > 0 )
+      effect.snow.pile[x]--;                        //melting
+    uint8_t p = effect.snow.pile[x];
+    if( p > 0 )
+      matrix.setPixelColor( xyToNum( x, PixelHeight - 1 ), matrix.Color(p, p, p + p / 4) );
+  }
+
+  for( uint8_t i = 0; i < SnowFlakes; i++ )
+  {
+    effect.snow.y[i] += effect.snow.speed[i];
+    if( random(256) < abs(wind) )
+      effect.snow.x[i] = ( effect.snow.x[i] + (wind > 0 ? 1 : PixelWidth * 4 - 1) ) % (PixelWidth * 4);
+    uint8_t x = effect.snow.x[i] / 4;
+    if( effect.snow.y[i] >= (PixelHeight - 1) * 16 )
+    {
+      effect.snow.pile[x] = min( effect.snow.pile[x] + 10, 45 );
+      snowRespawn( i, 0 );
+      continue;
+    }
+    uint8_t b = effect.snow.speed[i] * 13;          //nearer flakes fall faster and look brighter
+    matrix.setPixelColor( xyToNum( x, effect.snow.y[i] / 16 ), matrix.Color(b, b, b + b / 4) );
+  }
 }
 
 void init_tickerColor_rainbow()
