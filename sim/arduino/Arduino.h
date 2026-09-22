@@ -28,6 +28,12 @@ long random(long howbig);
 long random(long howsmall, long howbig);
 void randomSeed(unsigned long seed);
 
+// Arduino's min/max are macros that accept mixed types.
+#include <type_traits>
+template <typename A, typename B> inline typename std::common_type<A, B>::type min(A a, B b) { return b < a ? b : a; }
+template <typename A, typename B> inline typename std::common_type<A, B>::type max(A a, B b) { return a < b ? b : a; }
+using std::abs;
+
 inline bool isDigit(int c) { return c >= '0' && c <= '9'; }
 
 /* ---- F() / String ---- */
