@@ -39,3 +39,14 @@
 
 # debug information files
 *.dwo
+
+# Simulator build
+sim/build/
+
+# IDEs
+.idea/
+.vscode/
+cmake-build-*/
+
+# Python
+__pycache__/
