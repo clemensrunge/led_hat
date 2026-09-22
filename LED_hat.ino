@@ -20,7 +20,7 @@
 uint8_t fp4s = 40;
 
 /*OperationModes*/
-/*0=menu ; 1=testmode*/
+/*0=menu ; 1=testmode ; 2=ticker ; 3=dancing banana ; 4=pac-man*/
 uint8_t mode = 1;
 uint8_t lastmode = 1;
 uint8_t menue_input_interface; /* 0=bluetooth 1= serial */
@@ -210,6 +210,130 @@ PROGMEM const uint8_t speci21[] = { 2, 0, 1, 3,  3, 0, 1, 5,  2, 6, 1, 3,  3, 4,
  speci21  //83
 };
 
+/*Dancing banana sprite, 7x7 per frame. ' ' = off, 'S' = stem, 'L' = arms and legs,
+  body shaded as if lit from the left: 'H' = highlight, 'Y' = base, 'D' = shadow*/
+#define BananaWidth   7
+#define BananaFrames  4
+#define BananaCount   3   //bananas on the hat, spread evenly around it
+PROGMEM const char banana_frames[BananaFrames][PixelHeight][BananaWidth + 1] = {
+  { "  S    ",    //0: lean left, arms up, jump
+    "L HD  L",
+    " LHYDL ",
+    "  HYD  ",
+    "   YD  ",
+    "  L L  ",
+    " L   L " },
+  { "   S   ",    //1: upright, arms out
+    "   HD  ",
+    "LLHYDLL",
+    "  HYD  ",
+    "  YD   ",
+    "  L L  ",
+    "  L L  " },
+  { "    S  ",    //2: lean right, arms up, jump
+    "L  HD L",
+    " LHYDL ",
+    "  HYD  ",
+    "  YD   ",
+    "  L L  ",
+    " L   L " },
+  { "   S   ",    //3: upright, arms down, knees bent
+    "   HD  ",
+    " LHYDL ",
+    "L HYD L",
+    "  YD   ",
+    " L  L  ",
+    " L  L  " }
+};
+/*Pac-Man sprites, 7x7, facing right (mirrored for left). 'P' = Pac-Man,
+  ghost: 'G' = body, 'W' = eye white, 'E' = pupil; frightened ghost: 'B' = body, 'F' = face*/
+#define PacWidth  7
+PROGMEM const char pac_frames[3][PixelHeight][PacWidth + 1] = {
+  { "  PPP  ",    //0: mouth closed
+    " PPPPP ",
+    "PPPPPPP",
+    "PPPPPPP",
+    "PPPPPPP",
+    " PPPPP ",
+    "  PPP  " },
+  { "  PPP  ",    //1: half open
+    " PPPPP ",
+    "PPPPPPP",
+    "PPPP   ",
+    "PPPPPPP",
+    " PPPPP ",
+    "  PPP  " },
+  { "  PPP  ",    //2: open
+    " PPPPP ",
+    "PPPP   ",
+    "PPP    ",
+    "PPPP   ",
+    " PPPPP ",
+    "  PPP  " }
+};
+PROGMEM const char ghost_frames[2][PixelHeight][PacWidth + 1] = {
+  { "  GGG  ",
+    " GGGGG ",
+    "GWWGWWG",
+    "GWEGWEG",
+    "GGGGGGG",
+    "GGGGGGG",
+    "G G G G" },
+  { "  GGG  ",
+    " GGGGG ",
+    "GWWGWWG",
+    "GWEGWEG",
+    "GGGGGGG",
+    "GGGGGGG",
+    " G G G " }
+};
+PROGMEM const char ghost_fright[2][PixelHeight][PacWidth + 1] = {
+  { "  BBB  ",
+    " BBBBB ",
+    "BBBBBBB",
+    "BFBBBFB",
+    "BBBBBBB",
+    "BFBFBFB",
+    "B B B B" },
+  { "  BBB  ",
+    " BBBBB ",
+    "BBBBBBB",
+    "BFBBBFB",
+    "BBBBBBB",
+    "BFBFBFB",
+    " B B B " }
+};
+#define PacScoreWidth  11
+PROGMEM const char pac_score[5][PacScoreWidth + 1] = {
+  "XXX XXX XXX",
+  "  X X X X X",
+  "XXX X X X X",
+  "X   X X X X",
+  "XXX XXX XXX"
+};
+/*Positions are in quarter columns around the hat, so speeds can differ by less than a column per frame*/
+#define PacRing        (PixelWidth * 4)
+#define PacPelletRow   3
+#define PacGhostStart  14   //columns the ghost starts behind Pac-Man
+#define PacPowerAhead  22   //columns from Pac-Man to the power pellet
+#define PacCatchGap    5    //sprite centers this close = ghost eaten (they overlap by 2 columns)
+#define PacFlashAfter  9    //frames of fright before the ghost starts flashing
+/*Phases*/
+#define PacChase   0
+#define PacFright  1
+#define PacScore   2
+#define PacEyes    3
+/*Palettes*/
+#define PalPac     0
+#define PalGhost   1
+#define PalEyes    2
+#define PalFright  3
+#define PalFlash   4
+#define PalScore   5
+
+#define BananaTicksPerStep  3   //frames per dance step
+#define BananaStepsPerShift 4   //dance steps per column the troupe moves around the hat
+
 SoftwareSerial SoftS( SoftUartRx, SoftUartTx );
 Adafruit_NeoPixel matrix = Adafruit_NeoPixel( PixelCount, NeoPixelPin, NEO_GRB + NEO_KHZ800 );
 
@@ -271,6 +395,8 @@ void loop()
   {
    case 1: testmode(init);  break;
    case 2: ticker(init); break;
+   case 3: banana(init); break;
+   case 4: pacman(init); break;
   }
   init = 0;
   do
@@ -337,7 +463,9 @@ uint8_t menu()
         menuePrintln(F("\nSelect the new mode:"));
         menuePrintln(F("1:  Testmode"));
         menuePrintln(F("2:  Ticker"));
-        mode = SoftSintInput(1, 2);
+        menuePrintln(F("3:  Dancing banana"));
+        menuePrintln(F("4:  Pac-Man"));
+        mode = SoftSintInput(1, 4);
         if (mode != lastmode)
         {
          change |= (1 << 0);
@@ -786,6 +914,240 @@ void testmode(uint8_t init)
    case 2: newcolor = matrix.Color(0, 0, 50); break;
   }  
   matrix.setPixelColor( xyToNum( xPixel, yPixel ), newcolor ); 
+}
+
+void banana(uint8_t init)
+{
+  static uint8_t tick = 0;
+  static uint8_t step = 0;
+  static uint8_t shift = 0;
+  if( init & (1 << 0) )
+  {
+    tick = 0;
+    step = 0;
+    shift = 0;
+  }
+  else if( ++tick >= BananaTicksPerStep )
+  {
+    tick = 0;
+    step++;
+    if( step % BananaStepsPerShift == 0 )
+      shift = (shift + 1) % PixelWidth;
+  }
+
+  for (uint8_t p = 0; p < PixelCount; p++)
+  {
+    matrix.setPixelColor( p, 0 );
+  }
+
+  uint8_t frame = step % BananaFrames;
+  for( uint8_t b = 0; b < BananaCount; b++ )
+  {
+    for( uint8_t y = 0; y < PixelHeight; y++ )
+    {
+      for( uint8_t x = 0; x < BananaWidth; x++ )
+      {
+        /*Every other banana is mirrored, so neighbours lean in opposite directions.
+          Highlight and shadow swap sides too, to keep the light coming from the left.*/
+        boolean mirrored = b & 1;
+        uint8_t sx = mirrored ? BananaWidth - 1 - x : x;
+        char c = pgm_read_byte_near( &banana_frames[frame][y][sx] );
+        if( mirrored && c == 'H' )
+          c = 'D';
+        else if( mirrored && c == 'D' )
+          c = 'H';
+        uint32_t newcolor;
+        switch( c )
+        {
+          case 'H': newcolor = matrix.Color(60, 52, 10); break;
+          case 'Y': newcolor = matrix.Color(40, 30, 0);  break;
+          case 'D': newcolor = matrix.Color(18, 11, 0);  break;
+          case 'L': newcolor = matrix.Color(30, 8, 0);   break;
+          case 'S': newcolor = matrix.Color(6, 20, 0);   break;
+          default: continue;
+        }
+        /*The matrix wraps around the hat, so the troupe can dance all the way round*/
+        uint8_t px = ( b * PixelWidth / BananaCount + x + shift ) % PixelWidth;
+        matrix.setPixelColor( xyToNum( px, y ), newcolor );
+      }
+    }
+  }
+}
+
+uint32_t pacmanColor(char c, uint8_t palette)
+{
+  switch( palette )
+  {
+    case PalPac:
+      if( c == 'P' ) return matrix.Color(50, 40, 0);
+      break;
+    case PalGhost:
+      if( c == 'G' ) return matrix.Color(50, 0, 0);
+      /*fall through for the eyes*/
+    case PalEyes:
+      if( c == 'W' ) return matrix.Color(30, 30, 30);
+      if( c == 'E' ) return matrix.Color(0, 0, 45);
+      break;
+    case PalFright:
+      if( c == 'B' ) return matrix.Color(0, 0, 45);
+      if( c == 'F' ) return matrix.Color(40, 20, 20);
+      break;
+    case PalFlash:
+      if( c == 'B' ) return matrix.Color(35, 35, 35);
+      if( c == 'F' ) return matrix.Color(45, 0, 0);
+      break;
+    case PalScore:
+      if( c == 'X' ) return matrix.Color(0, 35, 35);
+      break;
+  }
+  return 0;
+}
+
+/*Draws a PROGMEM sprite (h rows of w chars plus terminator) centered on column cx,
+  starting at row y0, wrapping around the hat. Characters without a color are transparent.*/
+void drawWrappedSprite(const char *sprite, uint8_t w, uint8_t h, uint8_t y0, uint8_t cx, boolean mirrored, uint8_t palette)
+{
+  for( uint8_t y = 0; y < h; y++ )
+  {
+    for( uint8_t x = 0; x < w; x++ )
+    {
+      uint8_t sx = mirrored ? w - 1 - x : x;
+      uint32_t newcolor = pacmanColor( pgm_read_byte_near( &sprite[y * (w + 1) + sx] ), palette );
+      if( newcolor == 0 )
+        continue;
+      uint8_t px = ( cx + PixelWidth - w / 2 + x ) % PixelWidth;
+      matrix.setPixelColor( xyToNum( px, y0 + y ), newcolor );
+    }
+  }
+}
+
+int16_t pacWrap(int16_t pos)
+{
+  return ( (pos % PacRing) + PacRing ) % PacRing;
+}
+
+void pacman(uint8_t init)
+{
+  static uint8_t phase = PacChase;
+  static int16_t pacPos = 0;
+  static int16_t ghostPos = 0;
+  static int8_t pacDir = 1;
+  static uint8_t tick = 0;
+  static uint8_t timer = 0;
+  static uint8_t powerCol = 0;    //255 = eaten
+  static uint8_t scoreCol = 0;
+  static uint8_t pellets[(PixelWidth + 7) / 8];
+  boolean newround = false;
+
+  if( init & (1 << 0) )
+  {
+    pacPos = 3 * 4;
+    tick = 0;
+    newround = true;
+  }
+  else
+  {
+    tick++;
+    switch( phase )
+    {
+      case PacChase:    /*the ghost is slightly faster and closes in*/
+        pacPos = pacWrap( pacPos + pacDir * 2 );
+        ghostPos = pacWrap( ghostPos + pacDir * ( (tick & 1) ? 3 : 2 ) );
+        if( pacPos / 4 == powerCol )
+        {
+          phase = PacFright;
+          timer = 0;
+          powerCol = 255;
+          pacDir = -pacDir;
+        }
+        break;
+
+      case PacFright:   /*both turn round, the ghost flees at half speed*/
+        pacPos = pacWrap( pacPos + pacDir * 2 );
+        ghostPos = pacWrap( ghostPos + pacDir );
+        timer++;
+        if( pacWrap( pacDir * (ghostPos - pacPos) ) <= PacCatchGap * 4 )
+        {
+          phase = PacScore;
+          timer = 0;
+          scoreCol = ghostPos / 4;
+        }
+        break;
+
+      case PacScore:    /*freeze and show the points, like the arcade*/
+        if( ++timer >= 12 )
+        {
+          phase = PacEyes;
+          timer = 0;
+        }
+        break;
+
+      case PacEyes:     /*the eyes race off round the hat*/
+        pacPos = pacWrap( pacPos + pacDir * 2 );
+        ghostPos = pacWrap( ghostPos - pacDir * 6 );
+        if( ++timer >= 24 )
+          newround = true;
+        break;
+    }
+  }
+
+  if( newround )
+  {
+    phase = PacChase;
+    pacDir = 1;
+    ghostPos = pacWrap( pacPos - PacGhostStart * 4 );
+    powerCol = ( pacPos / 4 + PacPowerAhead ) % PixelWidth;
+    for( uint8_t i = 0; i < sizeof(pellets); i++ )
+      pellets[i] = 0xFF;
+  }
+
+  uint8_t pacCol = pacPos / 4;
+  pellets[pacCol >> 3] &= ~( 1 << (pacCol & 7) );
+
+  for (uint8_t p = 0; p < PixelCount; p++)
+  {
+    matrix.setPixelColor( p, 0 );
+  }
+
+  /*Pellets every third column, leaving room around the power pellet*/
+  for( uint8_t x = 0; x < PixelWidth; x += 3 )
+  {
+    uint8_t d = ( x + PixelWidth - powerCol ) % PixelWidth;
+    if( powerCol != 255 && (d <= 2 || d >= PixelWidth - 2) )
+      continue;
+    if( pellets[x >> 3] & ( 1 << (x & 7) ) )
+      matrix.setPixelColor( xyToNum( x, PacPelletRow ), matrix.Color(20, 12, 6) );
+  }
+  if( powerCol != 255 && (tick & 4) )
+  {
+    uint32_t power = matrix.Color(45, 28, 14);
+    matrix.setPixelColor( xyToNum( powerCol, PacPelletRow - 1 ), power );
+    matrix.setPixelColor( xyToNum( powerCol, PacPelletRow + 1 ), power );
+    matrix.setPixelColor( xyToNum( (powerCol + PixelWidth - 1) % PixelWidth, PacPelletRow ), power );
+    matrix.setPixelColor( xyToNum( powerCol, PacPelletRow ), power );
+    matrix.setPixelColor( xyToNum( (powerCol + 1) % PixelWidth, PacPelletRow ), power );
+  }
+
+  uint8_t skirt = (tick >> 2) & 1;
+  switch( phase )
+  {
+    case PacChase:
+      drawWrappedSprite( &ghost_frames[skirt][0][0], PacWidth, PixelHeight, 0, ghostPos / 4, pacDir < 0, PalGhost );
+      break;
+    case PacFright:
+      drawWrappedSprite( &ghost_fright[skirt][0][0], PacWidth, PixelHeight, 0, ghostPos / 4, false,
+                         (timer >= PacFlashAfter && (tick & 2)) ? PalFlash : PalFright );
+      break;
+    case PacScore:
+      drawWrappedSprite( &pac_score[0][0], PacScoreWidth, 5, 1, scoreCol, false, PalScore );
+      return;   //Pac-Man is hidden while the score shows
+    case PacEyes:
+      drawWrappedSprite( &ghost_frames[0][0][0], PacWidth, PixelHeight, 0, ghostPos / 4, pacDir > 0, PalEyes );
+      break;
+  }
+
+  static const uint8_t mouth[4] = { 0, 1, 2, 1 };
+  drawWrappedSprite( &pac_frames[ mouth[(tick >> 1) & 3] ][0][0], PacWidth, PixelHeight, 0, pacCol, pacDir < 0, PalPac );
 }
 
 void init_tickerColor_rainbow()
