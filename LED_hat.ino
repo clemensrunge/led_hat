@@ -20,7 +20,7 @@
 uint8_t fp4s = 40;
 
 /*OperationModes*/
-/*0=menu ; 1=testmode ; 2=ticker ; 3=dancing banana ; 4=pac-man*/
+/*0=menu ; 1=testmode ; 2=ticker ; 3=dancing banana ; 4=pac-man ; 5=space invaders*/
 uint8_t mode = 1;
 uint8_t lastmode = 1;
 uint8_t menue_input_interface; /* 0=bluetooth 1= serial */
@@ -330,6 +330,47 @@ PROGMEM const char pac_score[5][PacScoreWidth + 1] = {
 #define PalFright  3
 #define PalFlash   4
 #define PalScore   5
+#define PalSquid   6
+#define PalCrab    7
+#define PalBoom    8
+#define PalCannon  9
+
+/*Space invaders, 5x3, two animation frames each. 'X' = body, 'E' = eyes*/
+#define InvWidth    5
+#define InvHeight   3
+#define InvCount    4   //invaders in the formation
+#define InvSpacing  7   //columns from one invader to the next
+#define InvRange    (PixelWidth - (InvCount - 1) * InvSpacing - InvWidth)   //columns the formation can march
+#define InvLowest   2   //lowest formation row before the invaders land on the cannon
+PROGMEM const char invader_frames[2][2][InvHeight][InvWidth + 1] = {
+  { { " XXX ",      //squid
+      "XEXEX",
+      " X X " },
+    { " XXX ",
+      "XEXEX",
+      "X   X" } },
+  { { "X   X",      //crab
+      "XEXEX",
+      " X X " },
+    { " X X ",
+      "XEXEX",
+      "X   X" } }
+};
+PROGMEM const char invader_boom[InvHeight][InvWidth + 1] = {
+  "X X X",
+  " X X ",
+  "X X X"
+};
+PROGMEM const char cannon_sprite[2][3 + 1] = {
+  " X ",
+  "XXX"
+};
+PROGMEM const char cannon_boom[2][2][3 + 1] = {
+  { "X X",
+    " X " },
+  { " X ",
+    "X X" }
+};
 
 #define BananaTicksPerStep  3   //frames per dance step
 #define BananaStepsPerShift 4   //dance steps per column the troupe moves around the hat
@@ -397,6 +438,7 @@ void loop()
    case 2: ticker(init); break;
    case 3: banana(init); break;
    case 4: pacman(init); break;
+   case 5: invaders(init); break;
   }
   init = 0;
   do
@@ -465,7 +507,8 @@ uint8_t menu()
         menuePrintln(F("2:  Ticker"));
         menuePrintln(F("3:  Dancing banana"));
         menuePrintln(F("4:  Pac-Man"));
-        mode = SoftSintInput(1, 4);
+        menuePrintln(F("5:  Space Invaders"));
+        mode = SoftSintInput(1, 5);
         if (mode != lastmode)
         {
          change |= (1 << 0);
@@ -974,7 +1017,7 @@ void banana(uint8_t init)
   }
 }
 
-uint32_t pacmanColor(char c, uint8_t palette)
+uint32_t spriteColor(char c, uint8_t palette)
 {
   switch( palette )
   {
@@ -999,6 +1042,20 @@ uint32_t pacmanColor(char c, uint8_t palette)
     case PalScore:
       if( c == 'X' ) return matrix.Color(0, 35, 35);
       break;
+    case PalSquid:
+      if( c == 'X' ) return matrix.Color(40, 0, 40);
+      if( c == 'E' ) return matrix.Color(45, 0, 0);
+      break;
+    case PalCrab:
+      if( c == 'X' ) return matrix.Color(0, 35, 35);
+      if( c == 'E' ) return matrix.Color(45, 0, 0);
+      break;
+    case PalBoom:
+      if( c == 'X' ) return matrix.Color(45, 20, 0);
+      break;
+    case PalCannon:
+      if( c == 'X' ) return matrix.Color(0, 45, 0);
+      break;
   }
   return 0;
 }
@@ -1012,7 +1069,7 @@ void drawWrappedSprite(const char *sprite, uint8_t w, uint8_t h, uint8_t y0, uin
     for( uint8_t x = 0; x < w; x++ )
     {
       uint8_t sx = mirrored ? w - 1 - x : x;
-      uint32_t newcolor = pacmanColor( pgm_read_byte_near( &sprite[y * (w + 1) + sx] ), palette );
+      uint32_t newcolor = spriteColor( pgm_read_byte_near( &sprite[y * (w + 1) + sx] ), palette );
       if( newcolor == 0 )
         continue;
       uint8_t px = ( cx + PixelWidth - w / 2 + x ) % PixelWidth;
@@ -1148,6 +1205,187 @@ void pacman(uint8_t init)
 
   static const uint8_t mouth[4] = { 0, 1, 2, 1 };
   drawWrappedSprite( &pac_frames[ mouth[(tick >> 1) & 3] ][0][0], PacWidth, PixelHeight, 0, pacCol, pacDir < 0, PalPac );
+}
+
+uint8_t invaderAliveCount(uint8_t alive)
+{
+  uint8_t n = 0;
+  for( uint8_t i = 0; i < InvCount; i++ )
+    if( alive & (1 << i) )
+      n++;
+  return n;
+}
+
+/*Picks a random living invader, or 255 if there are none*/
+uint8_t randomInvader(uint8_t alive)
+{
+  uint8_t n = invaderAliveCount(alive);
+  if( n == 0 )
+    return 255;
+  uint8_t k = random(n);
+  for( uint8_t i = 0; i < InvCount; i++ )
+    if( (alive & (1 << i)) && k-- == 0 )
+      return i;
+  return 255;
+}
+
+void invaders(uint8_t init)
+{
+  static uint8_t alive = 0;       //bit i = invader i
+  static uint8_t fx = 0, fy = 0;  //formation position: left column, top row
+  static int8_t fdir = 1;
+  static uint8_t anim = 0;
+  static uint8_t stepTimer = 0;
+  static uint8_t cannonX = 0;
+  static uint8_t cannonDead = 0;  //frames left of the cannon's explosion
+  static uint8_t target = 0;
+  static int8_t laserX = -1, laserY = -1;   //-1 = no laser
+  static int8_t bombX = -1, bombY = -1;     //-1 = no bomb
+  static uint8_t boomX = 0, boomY = 0, boomTimer = 0;
+  static uint8_t waveTimer = 0;   //pause before the next wave
+  static uint8_t tick = 0;
+
+  if( init & (1 << 0) )
+  {
+    cannonX = PixelWidth / 2;
+    cannonDead = 0;
+    waveTimer = 1;
+    alive = 0;
+  }
+  tick++;
+
+  /*New wave*/
+  if( waveTimer > 0 && --waveTimer == 0 )
+  {
+    alive = (1 << InvCount) - 1;
+    fx = InvRange / 2;
+    fy = 0;
+    fdir = 1;
+    stepTimer = 0;
+    laserY = -1;
+    bombY = -1;
+    target = randomInvader(alive);
+  }
+
+  /*The formation marches, faster the fewer are left, and steps down at the ends*/
+  if( alive && ++stepTimer >= 2 + invaderAliveCount(alive) )
+  {
+    stepTimer = 0;
+    anim ^= 1;
+    if( (fdir > 0 && fx >= InvRange) || (fdir < 0 && fx == 0) )
+    {
+      fdir = -fdir;
+      if( ++fy > InvLowest )
+      {
+        /*Landed: the invaders win this wave*/
+        for( uint8_t i = 0; i < InvCount; i++ )
+          if( alive & (1 << i) )
+          {
+            boomX = fx + i * InvSpacing + InvWidth / 2;
+            boomY = InvLowest;
+          }
+        boomTimer = 8;
+        alive = 0;
+        cannonDead = 20;
+        waveTimer = 30;
+      }
+    }
+    else
+    {
+      fx += fdir;
+    }
+  }
+
+  /*Laser: one row per frame, hits an invader where it has a pixel*/
+  if( laserY >= 0 )
+  {
+    laserY--;
+    if( laserY >= fy && laserY < fy + InvHeight )
+    {
+      for( uint8_t i = 0; i < InvCount; i++ )
+      {
+        uint8_t sx = ( laserX + PixelWidth - fx - i * InvSpacing ) % PixelWidth;
+        if( !(alive & (1 << i)) || sx >= InvWidth )
+          continue;
+        if( pgm_read_byte_near( &invader_frames[i & 1][anim][laserY - fy][sx] ) != ' ' )
+        {
+          alive &= ~(1 << i);
+          boomX = fx + i * InvSpacing + InvWidth / 2;
+          boomY = fy;
+          boomTimer = 6;
+          laserY = -1;
+          target = randomInvader(alive);
+          if( !alive )
+            waveTimer = 25;
+          break;
+        }
+      }
+    }
+  }
+
+  /*Bombs: one at a time, half the laser's speed*/
+  if( bombY >= 0 )
+  {
+    if( tick & 1 )
+      bombY++;
+    if( bombY >= PixelHeight - 2 && !cannonDead && bombX >= cannonX - 1 && bombX <= cannonX + 1 )
+    {
+      cannonDead = 16;
+      bombY = -1;
+    }
+    else if( bombY >= PixelHeight )
+    {
+      bombY = -1;
+    }
+  }
+  else if( alive && random(12) == 0 )
+  {
+    uint8_t i = randomInvader(alive);
+    bombX = fx + i * InvSpacing + InvWidth / 2;
+    bombY = fy + InvHeight;
+  }
+
+  /*Cannon: hunts its target and fires when lined up*/
+  if( cannonDead > 0 )
+  {
+    cannonDead--;
+  }
+  else if( alive && target != 255 )
+  {
+    uint8_t goal = fx + target * InvSpacing + InvWidth / 2;
+    if( (tick & 1) && cannonX < goal )
+      cannonX++;
+    else if( (tick & 1) && cannonX > goal )
+      cannonX--;
+    else if( cannonX == goal && laserY < 0 )
+    {
+      laserX = cannonX;
+      laserY = PixelHeight - 2;
+    }
+  }
+
+  /*Draw*/
+  for (uint8_t p = 0; p < PixelCount; p++)
+  {
+    matrix.setPixelColor( p, 0 );
+  }
+  for( uint8_t i = 0; i < InvCount; i++ )
+    if( alive & (1 << i) )
+      drawWrappedSprite( &invader_frames[i & 1][anim][0][0], InvWidth, InvHeight, fy,
+                         fx + i * InvSpacing + InvWidth / 2, false, (i & 1) ? PalCrab : PalSquid );
+  if( boomTimer > 0 )
+  {
+    boomTimer--;
+    drawWrappedSprite( &invader_boom[0][0], InvWidth, InvHeight, boomY, boomX, false, PalBoom );
+  }
+  if( laserY >= 0 && laserY < PixelHeight - 2 )
+    matrix.setPixelColor( xyToNum( laserX, laserY ), matrix.Color(40, 40, 40) );
+  if( bombY >= 0 && bombY < PixelHeight )
+    matrix.setPixelColor( xyToNum( bombX, bombY ), matrix.Color(45, 10, 0) );
+  if( cannonDead > 0 )
+    drawWrappedSprite( &cannon_boom[(tick >> 1) & 1][0][0], 3, 2, PixelHeight - 2, cannonX, false, PalBoom );
+  else
+    drawWrappedSprite( &cannon_sprite[0][0], 3, 2, PixelHeight - 2, cannonX, false, PalCannon );
 }
 
 void init_tickerColor_rainbow()
