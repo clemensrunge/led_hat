@@ -8,17 +8,20 @@ Arduino firmware for an LED hat: a 34×7 NeoPixel matrix (238 pixels) that shows
 
 ## Build / flash
 
-It targets an AVR board with a 16 MHz clock (Uno/Nano class). The code writes Timer1 registers directly (`TCCR1B`, `OCR1A`, `TIFR1`), so it won't build for non-AVR boards. It needs the **Adafruit NeoPixel** library. This machine has no Arduino toolchain installed. With `arduino-cli` it would look like this:
+The hat runs on an **Arduino Micro** (ATmega32U4, 16 MHz, native USB). The code writes Timer1 registers directly (`TCCR1B`, `OCR1A`, `TIFR1`), so it won't build for non-AVR boards. It needs the **Adafruit NeoPixel** library. On the development machine, `arduino-cli` is installed in `~/.local/bin`, with the `arduino:avr` core and Adafruit NeoPixel. The commands are:
 
 ```
+arduino-cli core install arduino:avr
 arduino-cli lib install "Adafruit NeoPixel"
-arduino-cli compile --fqbn arduino:avr:uno .
-arduino-cli upload  --fqbn arduino:avr:uno -p /dev/ttyUSB0 .
+arduino-cli compile --fqbn arduino:avr:micro .
+arduino-cli upload  --fqbn arduino:avr:micro -p /dev/ttyACM0 .
 ```
 
 Arduino tooling requires the sketch folder to have the same name as the `.ino` file. The repo directory is `led_hat` and the sketch is `LED_hat.ino`, so you may have to rename one of them or copy the sketch into a `LED_hat/` folder before you compile.
 
-Serial settings: USB is `Serial` at 57600 baud. Bluetooth is `SoftS` on pins 10 (RX) and 11 (TX) at 9600 baud. The NeoPixel data line is on pin 5. Pin 13 is the status LED, which stays lit while the menu is open.
+On Linux the Micro shows up as `/dev/ttyACM0`. Its stable name is `/dev/serial/by-id/usb-Arduino_LLC_Arduino_Micro-if00`. The port belongs to the `dialout` group, so your user must be in that group to open it. To upload, `arduino-cli` opens the port at 1200 baud, which resets the board into its Caterina bootloader. Because of that, never open the port at 1200 baud for anything else. This board's bootloader identifies as a **Leonardo** (`2341:0036`), not a Micro (`0037`). It stays for about 7 seconds, then the sketch comes back as `2341:8037`. The upload works either way, but scripts that look for the bootloader port by USB ID have to accept `0036`. If a broken sketch stops USB from working, press the board's reset button just as the upload starts.
+
+Serial settings: USB is `Serial`, the 32U4's native USB CDC port. The sketch calls `Serial.begin(57600)`, but the baud rate has no effect on native USB, and opening the port does not reset the board, unlike on an Uno. Bluetooth is `SoftS` on pins 10 (RX) and 11 (TX) at 9600 baud. On the 32U4, SoftwareSerial can only receive on pins 8–11 and 14–16, so keep RX on one of those. The NeoPixel data line is on pin 5. Pin 13 is the status LED (the Micro's onboard `L` LED), which stays lit while the menu is open.
 
 ## Simulator (`sim/`)
 
@@ -63,4 +66,4 @@ The default message in `setup()` is already stored as indices. If you add glyphs
 
 **Color modes** (`colormode`, 1–7): 1 is a single `color`. The rest are rainbow/individual pairs that index into `multi_color[]` by column (2/3), by row (4/5), or by non-space character (6/7). The rainbow modes (2, 4, 6) fill `multi_color` through `init_tickerColor_rainbow()` and `Wheel()`. `tickerColor()` chooses the color for each pixel as it is drawn.
 
-**Memory.** RAM on the ATmega328 is tight: about 900 bytes of globals, plus the 714-byte NeoPixel buffer that the library allocates at runtime, which leaves roughly 430 bytes for the stack. Menu strings use the `F()` macro, and the font, sprites and `sine_table` live in PROGMEM. The procedural effects share one scratch `union effect` (fire uses 4-bit heat per pixel), because only the active mode needs it. Put new per-mode buffers in that union rather than adding globals.
+**Memory.** The Micro's ATmega32U4 has 2.5 KB of RAM and 28 KB of usable flash, because the Caterina bootloader takes 4 KB of the 32 KB. An Uno has 31.5 KB of usable flash, so a sketch that fits an Uno can be too big for the Micro. The sketch uses about 23 KB of flash. RAM is tight: the Micro build has about 870 bytes of globals, including the USB core. With the 714-byte NeoPixel buffer that the library allocates at runtime, that leaves about 975 bytes for the stack. Menu strings use the `F()` macro, and the font, sprites and `sine_table` live in PROGMEM. The procedural effects share one scratch `union effect` (fire uses 4-bit heat per pixel), because only the active mode needs it. Put new per-mode buffers in that union rather than adding globals.
