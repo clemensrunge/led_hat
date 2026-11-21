@@ -397,20 +397,27 @@ PROGMEM const uint8_t sine_table[256] = {
 #define LifePauseGens     6     //generations to show the final state before reseeding
 #define LifeDensity       35    //percent of cells alive when seeding
 #define SnowFlakes        24
+#define MeltFlakeDepth    12    //sixteenths of a row of snow that one landed flake adds
+#define MeltAfterburn     10    //frames the fire keeps burning after the last snow has melted
 
 /*Scratch memory shared by the procedural effects, only the current mode uses it.
-  RAM is tight: the NeoPixel buffer alone takes 3 bytes per pixel.*/
-union
+  RAM is tight: the NeoPixel buffer alone takes 3 bytes per pixel.
+  The heat is kept apart from the snow, because snow and fire uses both at once.*/
+struct
 {
   uint8_t heat[(PixelCount + 1) / 2];       //fire: 4 bits per pixel
-  uint8_t life[3][(PixelCount + 7) / 8];    //game of life: 1 bit per cell, 3 generations
-  struct
+  union
   {
-    uint8_t x[SnowFlakes];                  //quarter columns
-    uint8_t y[SnowFlakes];                  //sixteenth rows
-    uint8_t speed[SnowFlakes];
-    uint8_t pile[PixelWidth];               //snow lying on the bottom row
-  } snow;
+    uint8_t life[3][(PixelCount + 7) / 8];  //game of life: 1 bit per cell, 3 generations
+    struct
+    {
+      uint8_t x[SnowFlakes];                //quarter columns
+      uint8_t y[SnowFlakes];                //sixteenth rows
+      uint8_t speed[SnowFlakes];
+      uint8_t pile[PixelWidth];             //snow: brightness of the snow on the bottom row
+                                            //snow and fire: depth of the snow in sixteenth rows
+    } snow;
+  };
 } effect;
 
 PROGMEM const char cannon_boom[2][2][3 + 1] = {
@@ -491,6 +498,7 @@ void loop()
    case 7: plasma(init); break;
    case 8: life(init); break;
    case 9: snow(init); break;
+   case 10: snowfire(init); break;
   }
   init = 0;
   do
@@ -561,7 +569,8 @@ uint8_t menu()
         menuePrintln(F("7:  Plasma"));
         menuePrintln(F("8:  Game of Life"));
         menuePrintln(F("9:  Snow"));
-        mode = SoftSintInput(1, 9);
+        menuePrintln(F("10: Snow and fire"));
+        mode = SoftSintInput(1, 10);
         if (mode != lastmode)
         {
          change |= (1 << 0);
@@ -1655,18 +1664,163 @@ void snow(uint8_t init)
 
   for( uint8_t i = 0; i < SnowFlakes; i++ )
   {
-    effect.snow.y[i] += effect.snow.speed[i];
-    if( random(256) < abs(wind) )
-      effect.snow.x[i] = ( effect.snow.x[i] + (wind > 0 ? 1 : PixelWidth * 4 - 1) ) % (PixelWidth * 4);
-    uint8_t x = effect.snow.x[i] / 4;
+    uint8_t x = snowFall( i, wind );
     if( effect.snow.y[i] >= (PixelHeight - 1) * 16 )
     {
       effect.snow.pile[x] = min( effect.snow.pile[x] + 10, 45 );
       snowRespawn( i, 0 );
       continue;
     }
-    uint8_t b = effect.snow.speed[i] * 13;          //nearer flakes fall faster and look brighter
-    matrix.setPixelColor( xyToNum( x, effect.snow.y[i] / 16 ), matrix.Color(b, b, b + b / 4) );
+    snowDraw( i, x );
+  }
+}
+
+/*Moves flake i down by its speed and sideways with the wind, returns its column*/
+uint8_t snowFall(uint8_t i, int16_t wind)
+{
+  effect.snow.y[i] += effect.snow.speed[i];
+  if( random(256) < abs(wind) )
+    effect.snow.x[i] = ( effect.snow.x[i] + (wind > 0 ? 1 : PixelWidth * 4 - 1) ) % (PixelWidth * 4);
+  return effect.snow.x[i] / 4;
+}
+
+void snowDraw(uint8_t i, uint8_t x)
+{
+  uint8_t b = effect.snow.speed[i] * 13;          //nearer flakes fall faster and look brighter
+  matrix.setPixelColor( xyToNum( x, effect.snow.y[i] / 16 ), matrix.Color(b, b, b + b / 4) );
+}
+
+/*Snow and fire: the snow piles up from the bottom until the matrix is half full. Then a
+  fire burns on top of it and melts it down, dies out, and the snow piles up again.*/
+
+/*A flake landed on column x. It slides downhill while the snow next to it lies lower,
+  so the snow fills up evenly instead of piling into towers.*/
+void snowSettle(uint8_t x)
+{
+  uint8_t *depth = effect.snow.pile;
+  for( uint8_t step = 0; step < 4; step++ )
+  {
+    uint8_t l = (x + PixelWidth - 1) % PixelWidth, r = (x + 1) % PixelWidth;
+    uint8_t n = ( depth[l] < depth[r] || (depth[l] == depth[r] && random(2)) ) ? l : r;
+    if( depth[n] >= depth[x] )
+      break;
+    x = n;
+  }
+  depth[x] = min( depth[x] + MeltFlakeDepth, (PixelHeight - 1) * 16 );  //leave the top row for the flames
+}
+
+void snowfire(uint8_t init)
+{
+  static uint16_t tick = 0;
+  static uint8_t burn = 0;      //frames since the fire started, 0 while it snows
+  static uint8_t embers = 0;    //frames since the last snow melted
+  uint8_t *depth = effect.snow.pile;
+
+  if( init & (1 << 0) )
+  {
+    for( uint8_t i = 0; i < SnowFlakes; i++ )
+      snowRespawn( i, random((PixelHeight - 1) * 16) );
+    memset( depth, 0, PixelWidth );
+    memset( effect.heat, 0, sizeof(effect.heat) );
+    burn = 0;
+  }
+  tick++;
+  int16_t wind = (int16_t)sin8( tick >> 1 ) - 128;
+
+  uint16_t total = 0;
+  for( uint8_t x = 0; x < PixelWidth; x++ )
+    total += depth[x];
+  if( burn == 0 && total >= PixelCount * 8 )        //half of the matrix, in sixteenth rows
+  {
+    burn = 1;
+    embers = 0;
+  }
+
+  if( burn > 0 )
+  {
+    if( burn < 255 )
+      burn++;
+    if( total == 0 && embers < 255 )
+      embers++;
+
+    /*Flames rise and cool as in fire()*/
+    for( uint8_t y = 0; y < PixelHeight - 1; y++ )
+    {
+      for( uint8_t x = 0; x < PixelWidth; x++ )
+      {
+        uint8_t sum = heatGet( (x + PixelWidth - 1) % PixelWidth, y + 1 ) + 2 * heatGet( x, y + 1 )
+                    + heatGet( (x + 1) % PixelWidth, y + 1 );
+        uint8_t h = sum / 4;
+        uint8_t cool = random(5);
+        heatSet( x, y, h > cool ? h - cool : 0 );
+      }
+    }
+    /*The fuel burns in the row just above the snow and melts it. It flares up over the
+      first frames and goes out a little after the last snow has melted.*/
+    for( uint8_t x = 0; x < PixelWidth; x++ )
+    {
+      uint8_t fuelrow = PixelHeight - 1 - ( (depth[x] + 15) >> 4 );
+      uint8_t f = 0;
+      if( embers < MeltAfterburn )
+      {
+        f = random(5, 16);
+        if( burn < 8 )
+          f = f * burn / 8;
+      }
+      heatSet( x, fuelrow, f );
+      for( uint8_t y = fuelrow + 1; y < PixelHeight; y++ )
+        heatSet( x, y, 0 );                         //no flames inside the snow
+      uint8_t melt = f / 4;
+      depth[x] = depth[x] > melt ? depth[x] - melt : 0;
+    }
+    /*Once the fuel is out the flames take one frame per row to die away*/
+    if( embers >= MeltAfterburn + PixelHeight )
+      burn = 0;
+  }
+
+  /*Flakes that fall into the flames melt, the others land on the snow, or melt on it while
+    it burns. Both are respawned at the top and only drawn from the next frame on, like in snow().*/
+  for( uint8_t i = 0; i < SnowFlakes; i++ )
+  {
+    uint8_t x = snowFall( i, wind );
+    if( heatGet( x, effect.snow.y[i] / 16 ) >= 3 )
+      snowRespawn( i, 0 );
+    else if( effect.snow.y[i] + 8 + depth[x] >= PixelHeight * 16 )
+    {
+      if( burn == 0 )
+        snowSettle( x );
+      snowRespawn( i, 0 );
+    }
+  }
+
+  /*Snow, shaded darker with depth, its partly filled top cell dimmed, then the flames above it*/
+  for( uint8_t x = 0; x < PixelWidth; x++ )
+  {
+    uint8_t rows = (depth[x] + 15) >> 4;            //rows holding some snow
+    for( uint8_t y = 0; y < PixelHeight; y++ )
+    {
+      uint32_t c;
+      if( y >= PixelHeight - rows )
+      {
+        uint8_t below = y - (PixelHeight - rows);   //rows below the top of the snow
+        uint8_t v = below < 4 ? 28 - below * 4 : 12;
+        if( below == 0 && (depth[x] & 15) )
+          v = v * (depth[x] & 15) / 16;
+        c = matrix.Color( v, v, v + v / 4 );
+      }
+      else
+        c = heatColor( heatGet( x, y ) );
+      matrix.setPixelColor( xyToNum( x, y ), c );
+    }
+  }
+
+  /*A flake that fell this frame has moved off the top row. Skip one that the snow has grown
+    around, because another flake landed in its column after it, it lands next frame.*/
+  for( uint8_t i = 0; i < SnowFlakes; i++ )
+  {
+    uint8_t x = effect.snow.x[i] / 4;
+    if( effect.snow.y[i] > 0 && effect.snow.y[i] + 8 + depth[x] < PixelHeight * 16 )
+      snowDraw( i, x );
   }
 }
 
