@@ -34,6 +34,11 @@ uint8_t colormode = 0;
 uint32_t color;            //mode = 0;
 uint32_t multi_color[40];  //mode = 1, 2
 
+/*A grey column marks the seam while a message too long to loop around the hat
+  scrolls in and out there. The seam is at the exact back of the hat. The matrix sits
+  one column off center, so that is the second to last column rather than the last one.*/
+#define TickerSeamColumn (PixelWidth - 2)
+
 
 /*Font definition */
 PROGMEM const uint8_t letterA[] = { 3, 0, 1, 6,  2, 0, 1, 3,  2, 3, 1, 3,  3, 4, 1, 6,  0};
@@ -1724,8 +1729,19 @@ uint32_t *tickerColor(const uint8_t *x, const uint8_t *y, const uint8_t *letter_
   return &nextcolor;
 }
 
-/*Draws the message scrolled textpos columns to the left, clipped to the matrix*/
-void tickerDraw( int16_t textpos )
+/*Grey of the same luminance as c (Rec. 709 weights: green looks brightest, blue
+  darkest), so it does not look brighter than c. Never quite off unless c is.*/
+uint32_t greyLike( uint32_t c )
+{
+  uint8_t r = c >> 16, g = c >> 8, b = c;
+  uint8_t l = ( 54 * (uint16_t)r + 183 * (uint16_t)g + 19 * (uint16_t)b ) >> 8;
+  if( l == 0 && c != 0 )
+    l = 1;
+  return matrix.Color( l, l, l );
+}
+
+/*Draws the message scrolled textpos columns to the left, clipped to columns xlo..xhi*/
+void tickerDraw( int16_t textpos, uint8_t xlo, uint8_t xhi )
 {
  boolean messageloopctrl = true;
  int8_t nextChar_inlettertable;
@@ -1766,9 +1782,9 @@ void tickerDraw( int16_t textpos )
           case 1:
             arguments[0] = letterpos + pgm_read_byte_near(&(letteraddr)[p++]) - textpos;
             
-            if( arguments[0] >= 0 && arguments[0] <= PixelWidth - 1)
+            if( arguments[0] >= xlo && arguments[0] <= xhi )
             {
-              uint8_t temp_arg0 = (uint8_t)arguments[0]; 
+              uint8_t temp_arg0 = (uint8_t)arguments[0];
               uint8_t temp_arg1 = pgm_read_byte_near(&(letteraddr)[p++]);
               
               matrix.setPixelColor( xyToNum( temp_arg0, temp_arg1 ), *tickerColor(&temp_arg0, &temp_arg1, &character_without_whitespace) );
@@ -1785,37 +1801,22 @@ void tickerDraw( int16_t textpos )
              arguments[0] = pgm_read_byte_near(&(letteraddr)[p++]);
              arguments[1] = letterpos + pgm_read_byte_near(&(letteraddr)[p++]) -textpos;
              arguments[2] = letterpos + pgm_read_byte_near(&(letteraddr)[p++]) -textpos;
-             
-               
-             if( arguments[1] < 0)
-             {
-               if( arguments[2] >= 0)
-               {
-                 arguments[1] = 0;
-                 drawhorizontalline(arguments[0], arguments[1], arguments[2], &character_without_whitespace);
-               }
-             }
-             
-             else if( arguments[2] > PixelWidth - 1)
-             {
-               if( arguments[1] <= PixelWidth -1)
-               {
-                 arguments[2] = PixelWidth - 1;
-                 drawhorizontalline(arguments[0], arguments[1], arguments[2], &character_without_whitespace);
-               } 
-             }
-             else
-             {
+
+             /*Clip both ends, the range can be narrower than a letter*/
+             if( arguments[1] < xlo )
+               arguments[1] = xlo;
+             if( arguments[2] > xhi )
+               arguments[2] = xhi;
+             if( arguments[1] <= arguments[2] )
                drawhorizontalline(arguments[0], arguments[1], arguments[2], &character_without_whitespace);
-             }                   
-             
+
              break;
             
             case 3:
               arguments[0] = letterpos + pgm_read_byte_near(&(letteraddr)[p++]) -textpos;
               
-              if(arguments[0] >= 0 && arguments[0] <= PixelWidth -1)
-              { 
+              if( arguments[0] >= xlo && arguments[0] <= xhi )
+              {
                 arguments[1] = pgm_read_byte_near(&(letteraddr)[p++]);
                 arguments[2] = pgm_read_byte_near(&(letteraddr)[p++]);
                 
@@ -1879,11 +1880,25 @@ void ticker( uint8_t init)
  {
    /*Two copies one turn apart: what scrolls past column 0 reappears at the last column*/
    int16_t turnpos = (textpos + PixelWidth) % PixelWidth;
-   tickerDraw( turnpos );
-   tickerDraw( turnpos - PixelWidth );
+   tickerDraw( turnpos, 0, PixelWidth - 1 );
+   tickerDraw( turnpos - PixelWidth, 0, PixelWidth - 1 );
  }
  else
  {
-   tickerDraw( textpos );
+   /*The text comes out of the seam column and flows once round the hat into it. Its
+     columns start right after the seam, so they wrap past the last matrix column:
+     the part up to there and the rest from column 0 on are drawn separately.*/
+   uint8_t start = (TickerSeamColumn + 1) % PixelWidth;
+   tickerDraw( textpos - start, start, PixelWidth - 1 );
+   if( start > 0 )
+     tickerDraw( textpos - start + PixelWidth, 0, start - 1 );
+   /*Mark the seam, so the start of the text coming out of it can be told apart
+     from the end of the text going into it right next to it. Grey contrasts with
+     colored text; it is no brighter than the text color would be there (in the
+     per character modes, that of the first character, which comes out of the seam).*/
+   uint8_t seamx = TickerSeamColumn;
+   uint8_t firstchar = 0;
+   for( uint8_t y = 0; y < PixelHeight; y++ )
+     matrix.setPixelColor( xyToNum( seamx, y ), greyLike( *tickerColor( &seamx, &y, &firstchar ) ) );
  }
 }
