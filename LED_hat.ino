@@ -779,13 +779,15 @@ uint8_t menueSerialavailable(int8_t interface)
     return Serial.available();
 }
 
-char menueCharin(uint8_t interface)
+char menueCharin(uint8_t interface)   //terminals and phone apps end lines with CR, LF or CR LF; each arrives as one '\n'
 {
-  if (interface == 0)
-    return SoftS.read();
-  
-  if (interface == 1)
-    return Serial.read();
+  static boolean afterCR = false;
+  char c = interface == 0 ? SoftS.read() : Serial.read();
+  boolean cr = c == '\r';
+  if (c == '\n' && afterCR)
+    c = 0;              //LF of a CR LF: the CR already ended the line, and the input routines ignore 0
+  afterCR = cr;
+  return cr ? '\n' : c;
 }
 
 void SoftSmessageInput(uint8_t maxlength)
