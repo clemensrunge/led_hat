@@ -3,3 +3,7 @@
 #include "Arduino.h"
 #include "sketch_prototypes.h"
 #include SKETCH_FILE
+
+// Matrix size for the display in main.cpp, so it always matches the sketch.
+extern const int SketchCols = PixelWidth;
+extern const int SketchRows = PixelHeight;

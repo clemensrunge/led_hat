@@ -20,9 +20,10 @@
 
 #include "sim.h"
 
-// Must match the sketch.
-static const int Cols = 34;
-static const int Rows = 7;
+// Matrix size, from the sketch's PixelWidth and PixelHeight (see sketch.cpp).
+extern const int SketchCols, SketchRows;
+static const int Cols = SketchCols;
+static const int Rows = SketchRows;
 
 static const float Pi = 3.14159265358979f;
 
@@ -131,7 +132,7 @@ private:
 class HatRenderer
 {
 public:
-  float arcDegrees = 360;  // how much of the circumference the 34 columns cover
+  float arcDegrees = 360;  // how much of the circumference the columns cover
 
   void draw(SDL_Renderer *r, const Camera &cam, const std::vector<uint32_t> &px)
   {
@@ -334,7 +335,7 @@ private:
 static void usage(const char *argv0)
 {
   std::printf("usage: %s [--arc DEGREES] [--screenshot FILE.bmp]\n"
-              "  --arc         how much of the hat's circumference the 34 columns cover (default 360)\n"
+              "  --arc         how much of the hat's circumference the columns cover (default 360)\n"
               "  --screenshot  save the window after 3 seconds and exit\n",
               argv0);
 }

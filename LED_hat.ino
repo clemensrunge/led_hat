@@ -9,12 +9,12 @@
 #define LEDPin       13
 #define NeoPixelPin  5
 
-/*Pixel count*/
-#define PixelCount  238
-
 /*Matrix x,y width, height*/
-#define PixelWidth  34
+#define PixelWidth  37
 #define PixelHeight 7
+
+/*Pixel count, 259: more than a uint8_t holds, so pixel indices must be uint16_t*/
+#define PixelCount  (PixelWidth * PixelHeight)
 
 /*Frames per 4 seconds*/
 uint8_t fp4s = 40;
@@ -499,10 +499,7 @@ void loop()
       lastmode = mode;
       mode = 0;
       
-      for (uint8_t p = 0; p < PixelCount; p++)
-      {
-        matrix.setPixelColor( p, 0 ); 
-      }
+      clearMatrix();
       digitalWrite(LEDPin, HIGH);
     }   
   } while(  !(TIFR1 & (1 << OCF1A) ) );
@@ -649,7 +646,9 @@ uint8_t menu()
           break;
           
         case 3:
-          menuePrintln(F("1: Define color for each of the 34 colums?"));
+          menuePrint(F("1: Define color for each of the "));
+          menuePrintDEC(PixelWidth);
+          menuePrintln(F(" colums?"));
           menuePrintln(F("2: No! The colormode will be changed back to single color."));
           if( SoftSintInput(1, 2) == 1)
           {
@@ -891,9 +890,9 @@ uint8_t SoftSintInput (uint8_t minv, uint8_t maxv)
   return result;
 }
 
-uint8_t xyToNum( uint8_t x, uint8_t y )
+uint16_t xyToNum( uint8_t x, uint8_t y )
 {
-   uint8_t PNum;
+   uint16_t PNum;
    switch( y )  /* Use of switch case to avoid a mutiplication of x * PixelWidth */
    {
     case  0: PNum = 0 * PixelWidth;      break;
@@ -917,7 +916,7 @@ uint8_t xyToNum( uint8_t x, uint8_t y )
 
 void drawhorizontalline(uint8_t y, uint8_t x1, uint8_t x2, const uint8_t *letter_num)
 {
-  uint8_t pixel = xyToNum(x1, y); 
+  uint16_t pixel = xyToNum(x1, y);
   
   int8_t countd;
   if ( y & ( 1 << 0) )
@@ -941,7 +940,7 @@ void drawhorizontalline(uint8_t y, uint8_t x1, uint8_t x2, const uint8_t *letter
 
 void drawverticalline(uint8_t x, uint8_t y1, uint8_t y2, const uint8_t *letter_num)
 {
-  uint8_t pixel = xyToNum(x, y1);
+  uint16_t pixel = xyToNum(x, y1);
   
   matrix.setPixelColor(pixel, *tickerColor(&x, &y1, letter_num));
   
@@ -984,11 +983,11 @@ void testmode(uint8_t init)
       color = 0;
       matrix.setPixelColor( xyToNum( xPixel, yPixel ), 0 );
       xPixel++;
-      if( xPixel > 33)
+      if( xPixel >= PixelWidth )
       {
         xPixel = 0;
         yPixel++;
-        if( yPixel > 6 ) 
+        if( yPixel >= PixelHeight )
         {
           yPixel = 0; 
         }
@@ -1029,10 +1028,7 @@ void banana(uint8_t init)
       shift = (shift + 1) % PixelWidth;
   }
 
-  for (uint8_t p = 0; p < PixelCount; p++)
-  {
-    matrix.setPixelColor( p, 0 );
-  }
+  clearMatrix();
 
   uint8_t frame = step % BananaFrames;
   for( uint8_t b = 0; b < BananaCount; b++ )
@@ -1212,10 +1208,7 @@ void pacman(uint8_t init)
   uint8_t pacCol = pacPos / 4;
   pellets[pacCol >> 3] &= ~( 1 << (pacCol & 7) );
 
-  for (uint8_t p = 0; p < PixelCount; p++)
-  {
-    matrix.setPixelColor( p, 0 );
-  }
+  clearMatrix();
 
   /*Pellets every third column, leaving room around the power pellet*/
   for( uint8_t x = 0; x < PixelWidth; x += 3 )
@@ -1416,10 +1409,7 @@ void invaders(uint8_t init)
   }
 
   /*Draw*/
-  for (uint8_t p = 0; p < PixelCount; p++)
-  {
-    matrix.setPixelColor( p, 0 );
-  }
+  clearMatrix();
   for( uint8_t i = 0; i < InvCount; i++ )
     if( alive & (1 << i) )
       drawWrappedSprite( &invader_frames[i & 1][anim][0][0], InvWidth, InvHeight, fy,
@@ -1441,7 +1431,7 @@ void invaders(uint8_t init)
 
 void clearMatrix()
 {
-  for (uint8_t p = 0; p < PixelCount; p++)
+  for (uint16_t p = 0; p < PixelCount; p++)
   {
     matrix.setPixelColor( p, 0 );
   }
@@ -1561,7 +1551,7 @@ void life(uint8_t init)
       uint8_t *now = effect.life[cur];
       uint8_t *prev = effect.life[(cur + 2) % 3];
       uint8_t *next = effect.life[(cur + 1) % 3];   //overwrites the oldest generation
-      uint8_t population = 0;
+      uint16_t population = 0;
       for( uint8_t y = 0; y < PixelHeight; y++ )
       {
         for( uint8_t x = 0; x < PixelWidth; x++ )
@@ -1669,7 +1659,7 @@ void init_tickerColor_rainbow()
   switch( colormode ) 
   {
     case 2:
-       color_steps = 32;
+       color_steps = PixelWidth;
        break;
        
     case 4:
@@ -1748,10 +1738,7 @@ void ticker( uint8_t init)
  }
  else
  {
-   for (uint8_t p = 0; p < PixelCount; p++)
-      {
-        matrix.setPixelColor( p, 0 ); 
-      }
+   clearMatrix();
    if (textpos == pixellength)
      textpos = -1 * (PixelWidth -1);
   textpos++;
