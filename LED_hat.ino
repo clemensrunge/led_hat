@@ -1724,27 +1724,9 @@ uint32_t *tickerColor(const uint8_t *x, const uint8_t *y, const uint8_t *letter_
   return &nextcolor;
 }
 
-void ticker( uint8_t init)
+/*Draws the message scrolled textpos columns to the left, clipped to the matrix*/
+void tickerDraw( int16_t textpos )
 {
-  static int16_t textpos = -12;
-  static uint8_t pixellength = 12;
- 
- if ( init & (1 << 1) )
-   init_tickerColor_rainbow();
- 
- if( init & (1 << 0) )
- {
-   textpos = -1 * (PixelWidth -1);
-   pixellength = message[40] *6;
- }
- else
- {
-   clearMatrix();
-   if (textpos == pixellength)
-     textpos = -1 * (PixelWidth -1);
-  textpos++;
- }
- 
  boolean messageloopctrl = true;
  int8_t nextChar_inlettertable;
  uint8_t letterpos = 0;
@@ -1859,3 +1841,49 @@ void ticker( uint8_t init)
    i++;
    }   
  }
+
+void ticker( uint8_t init)
+{
+  static int16_t textpos = -12;
+  static uint8_t pixellength = 12;
+ 
+ if ( init & (1 << 1) )
+   init_tickerColor_rainbow();
+ 
+ if( init & (1 << 0) )
+ {
+   textpos = -1 * (PixelWidth -1);
+   pixellength = message[40] *6;
+ }
+
+ /*Text that fits around the hat once loops over the seam between the last and the
+   first column. Longer text scrolls in at the seam and out of it again, then restarts.*/
+ boolean loops = pixellength <= PixelWidth;
+ if( !(init & (1 << 0)) )
+ {
+   clearMatrix();
+   if( loops )
+   {
+     if( ++textpos >= PixelWidth )
+       textpos -= PixelWidth;
+   }
+   else
+   {
+     if (textpos == pixellength)
+       textpos = -1 * (PixelWidth -1);
+     textpos++;
+   }
+ }
+
+ if( loops )
+ {
+   /*Two copies one turn apart: what scrolls past column 0 reappears at the last column*/
+   int16_t turnpos = (textpos + PixelWidth) % PixelWidth;
+   tickerDraw( turnpos );
+   tickerDraw( turnpos - PixelWidth );
+ }
+ else
+ {
+   tickerDraw( textpos );
+ }
+}

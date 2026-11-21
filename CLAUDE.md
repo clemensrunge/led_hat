@@ -57,7 +57,7 @@ The hardware really is 37 columns. The firmware that was on the board before 202
 
 Glyphs are 5 columns wide and 7 rows tall, and they are laid out on a 6-column pitch (`letterpos += 6`). `letter_table[]` sits in RAM and holds pointers into PROGMEM. The glyph bytes are read with `pgm_read_byte_near`.
 
-**Message encoding.** `message[0..39]` holds **indices into `letter_table`**, not ASCII. `-1` means a space, and `message[40]` holds the length. Index 0 is 'A', so test for a space with `< 0`. Testing with `< 1` treats 'A' as a space and throws off the per-character colors. `SoftSmessageInput()` first writes raw ASCII into the buffer, and menu case 3 then converts it in place:
+**Message encoding.** `message[0..39]` holds **indices into `letter_table`**, not ASCII. `-1` means a space, and `message[40]` holds the length. Index 0 is 'A', so test for a space with `< 0`. Testing with `< 1` treats 'A' as a space and throws off the per-character colors. Each character takes 6 columns. A message that fits around the hat (`message[40] * 6 <= PixelWidth`, so up to 6 characters at 37 columns) loops continuously over the seam between the last and first column. `ticker()` does this by calling `tickerDraw()` twice, one turn apart. A longer message scrolls in at the seam and back out of it, then starts over. `SoftSmessageInput()` first writes raw ASCII into the buffer, and menu case 3 then converts it in place:
 - A–Z → 0–25
 - a–z → 26–51
 - 0–9 → 52–61
