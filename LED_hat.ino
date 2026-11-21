@@ -1783,7 +1783,7 @@ void ticker( uint8_t init)
           case 1:
             arguments[0] = letterpos + pgm_read_byte_near(&(letteraddr)[p++]) - textpos;
             
-            if( arguments[0] >= 0 && arguments[0] <= PixelWidth)
+            if( arguments[0] >= 0 && arguments[0] <= PixelWidth - 1)
             {
               uint8_t temp_arg0 = (uint8_t)arguments[0]; 
               uint8_t temp_arg1 = pgm_read_byte_near(&(letteraddr)[p++]);
