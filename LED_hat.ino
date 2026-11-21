@@ -830,7 +830,7 @@ uint8_t message_len_without_whitespaces()
   uint8_t whitespacecount = 0;
   uint8_t i = 0;
   for( ; i < message[40]; i++)
-    if( message[i] < 1)
+    if( message[i] < 0)
       whitespacecount++;
   return i - whitespacecount; 
 }
@@ -1852,7 +1852,7 @@ void ticker( uint8_t init)
    }
    else
    {
-     if(next_pointer_toChar > 0)
+     if(next_pointer_toChar >= 0)
        character_without_whitespace++;
    }
    letterpos += 6;
