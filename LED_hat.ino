@@ -890,26 +890,27 @@ uint8_t SoftSintInput (uint8_t minv, uint8_t maxv)
   return result;
 }
 
+/*Serpentine wiring, starting top right: even rows run right to left, odd rows left to right*/
 uint16_t xyToNum( uint8_t x, uint8_t y )
 {
    uint16_t PNum;
    switch( y )  /* Use of switch case to avoid a mutiplication of x * PixelWidth */
    {
-    case  0: PNum = 0 * PixelWidth;      break;
-    case  1: PNum = 2 * PixelWidth - 1;  break;
-    case  2: PNum = 2 * PixelWidth;      break;
-    case  3: PNum = 4 * PixelWidth - 1;  break;
-    case  4: PNum = 4 * PixelWidth;      break;
-    case  5: PNum = 6 * PixelWidth - 1;  break;
-    case  6: PNum = 6 * PixelWidth;      break;
+    case  0: PNum = 1 * PixelWidth - 1;  break;
+    case  1: PNum = 1 * PixelWidth;      break;
+    case  2: PNum = 3 * PixelWidth - 1;  break;
+    case  3: PNum = 3 * PixelWidth;      break;
+    case  4: PNum = 5 * PixelWidth - 1;  break;
+    case  5: PNum = 5 * PixelWidth;      break;
+    case  6: PNum = 7 * PixelWidth - 1;  break;
    }
    if ( y & ( 1 << 0) )
    {
-     PNum -= x;
+     PNum += x;
    }
    else
-   { 
-     PNum += x; 
+   {
+     PNum -= x;
    }
    return PNum;
 }
@@ -921,11 +922,11 @@ void drawhorizontalline(uint8_t y, uint8_t x1, uint8_t x2, const uint8_t *letter
   int8_t countd;
   if ( y & ( 1 << 0) )
   {
-    countd = -1;
+    countd = 1;
   }
   else
   {
-    countd = 1; 
+    countd = -1;
   }
    
   uint8_t x = x1;
@@ -950,11 +951,11 @@ void drawverticalline(uint8_t x, uint8_t y1, uint8_t y2, const uint8_t *letter_n
     uint8_t tempadd;
     if ( y & ( 1 << 0) )
     {
-      tempadd = ( ( (PixelWidth - 1) - x) << 1) + 1;
+      tempadd = (x << 1) + 1;
     }
     else
     {
-      tempadd = (x << 1) + 1;
+      tempadd = ( ( (PixelWidth - 1) - x) << 1) + 1;
     }
     pixel += tempadd;
     

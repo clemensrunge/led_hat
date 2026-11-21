@@ -37,11 +37,12 @@ static Vec3 operator*(Vec3 a, float s) { return {a.x * s, a.y * s, a.z * s}; }
 static float dot(Vec3 a, Vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 static Vec3 normalize(Vec3 a) { return a * (1.0f / std::sqrt(dot(a, a))); }
 
-// Same serpentine wiring as xyToNum() in the sketch: even rows run left to
-// right, odd rows right to left.
+// The hat's physical wiring, which xyToNum() in the sketch must match: a
+// serpentine starting top right, even rows running right to left, odd rows
+// left to right. Kept separate from the sketch so mapping bugs show up here.
 static int pixelIndex(int x, int y)
 {
-  return (y & 1) ? (y + 1) * Cols - 1 - x : y * Cols + x;
+  return (y & 1) ? y * Cols + x : (y + 1) * Cols - 1 - x;
 }
 
 // Raw NeoPixel values look far too dark on a monitor next to the real thing
