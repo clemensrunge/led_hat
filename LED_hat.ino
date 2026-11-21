@@ -646,7 +646,7 @@ uint8_t menu()
         {
         case 1:
           menuePrintln(F("\nChange the single color (RGB 0-255):\n"));
-          color = matrix.Color(SoftSintInput(0,255), SoftSintInput(0,255), SoftSintInput(0,255) );
+          color = RGBInput();
           menuePrintln(F("color set"));
           break;
           
@@ -710,7 +710,7 @@ uint8_t menu()
             menuePrint(F("RGB Values Nr."));
             menuePrintDEC(color_input_repeat+1 );
             menuePrint(F(" :\n"));
-            multi_color[color_input_repeat] = matrix.Color(SoftSintInput(0,255), SoftSintInput(0,255), SoftSintInput(0,255) );
+            multi_color[color_input_repeat] = RGBInput();
           }
           menuePrintln(F("Finished, defining multiple colors."));
         }
@@ -746,7 +746,7 @@ void menuePrint(String msg)
  }
 }
 
-void menuePrintDEC(uint8_t x)
+void menuePrintDEC(long x)    //long, so SoftSintInput can echo an out of range number unchanged
 {
 if (menue_input_interface == 0)
   {
@@ -843,7 +843,7 @@ uint8_t message_len_without_whitespaces()
 uint8_t SoftSintInput (uint8_t minv, uint8_t maxv)
 {
   String input;
-  uint8_t result;
+  long result;    //wider than the return type, so 256 and up fail the range check instead of wrapping
   menuePrint(F("Enter a number: "));
   
   boolean waituntilvalidv = true;
@@ -893,6 +893,17 @@ uint8_t SoftSintInput (uint8_t minv, uint8_t maxv)
     
   }while( waituntilvalidv );  
   return result;
+}
+
+/*Reads a color as red, green, blue. Each value goes into its own variable first: the
+  order in which function arguments are evaluated is unspecified, and avr-gcc read the
+  three numbers of Color(SoftSintInput(), SoftSintInput(), SoftSintInput()) as blue, green, red.*/
+uint32_t RGBInput()
+{
+  uint8_t r = SoftSintInput(0, 255);
+  uint8_t g = SoftSintInput(0, 255);
+  uint8_t b = SoftSintInput(0, 255);
+  return matrix.Color(r, g, b);
 }
 
 /*Serpentine wiring, starting top right: even rows run right to left, odd rows left to right*/
