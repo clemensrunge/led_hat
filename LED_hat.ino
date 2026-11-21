@@ -1,10 +1,8 @@
 #include <Adafruit_NeoPixel.h>
-#include <SoftwareSerial.h>
 #include <avr/pgmspace.h>
 
 /*Pin definitions*/
-#define SoftUartRx   10
-#define SoftUartTx   11
+#define BTSerial     Serial1   //HM-10 Bluetooth module on the hardware UART: pins 0 (RX) and 1 (TX)
 #define BLstatus     8
 #define LEDPin       13
 #define NeoPixelPin  5
@@ -430,7 +428,6 @@ PROGMEM const char cannon_boom[2][2][3 + 1] = {
 #define BananaTicksPerStep  3   //frames per dance step
 #define BananaStepsPerShift 4   //dance steps per column the troupe moves around the hat
 
-SoftwareSerial SoftS( SoftUartRx, SoftUartTx );
 Adafruit_NeoPixel matrix = Adafruit_NeoPixel( PixelCount, NeoPixelPin, NEO_GRB + NEO_KHZ800 );
 
 void Timer1start(uint8_t fp4s)
@@ -459,7 +456,7 @@ void setup()
   digitalWrite(LEDPin, LOW);
   
   Serial.begin(57600);
-  SoftS.begin(9600);
+  BTSerial.begin(9600);
   
   matrix.begin();
   matrix.show();
@@ -523,8 +520,8 @@ void loop()
 
 uint8_t menu()
 {
-  while( SoftS.available() > 0)
-    SoftS.read();            /*Clear Input Stream */
+  while( BTSerial.available() > 0)
+    BTSerial.read();            /*Clear Input Stream */
   while( Serial.available() > 0)
     Serial.read();
     
@@ -735,7 +732,7 @@ void menuePrintln(String msg)
 {
  if (menue_input_interface == 0)
  {
-  SoftS.println(msg);
+  BTSerial.println(msg);
  }
  else if (menue_input_interface == 1)
  {
@@ -747,7 +744,7 @@ void menuePrint(String msg)
 {
  if (menue_input_interface == 0)
  {
-  SoftS.print(msg);
+  BTSerial.print(msg);
  }
  else if (menue_input_interface == 1)
  {
@@ -759,7 +756,7 @@ void menuePrintDEC(long x)    //long, so SoftSintInput can echo an out of range 
 {
 if (menue_input_interface == 0)
   {
-    SoftS.print(x, DEC);
+    BTSerial.print(x, DEC);
   }
    else if (menue_input_interface == 1)
   {
@@ -770,10 +767,10 @@ if (menue_input_interface == 0)
 uint8_t menueSerialavailable(int8_t interface)
 {
   if(interface == -1)
-   return SoftS.available() + Serial.available();
+   return BTSerial.available() + Serial.available();
     
   else if (interface == 0)
-    return SoftS.available();
+    return BTSerial.available();
   
   else if(interface == 1)
     return Serial.available();
@@ -782,7 +779,7 @@ uint8_t menueSerialavailable(int8_t interface)
 char menueCharin(uint8_t interface)   //terminals and phone apps end lines with CR, LF or CR LF; each arrives as one '\n'
 {
   static boolean afterCR = false;
-  char c = interface == 0 ? SoftS.read() : Serial.read();
+  char c = interface == 0 ? BTSerial.read() : Serial.read();
   boolean cr = c == '\r';
   if (c == '\n' && afterCR)
     c = 0;              //LF of a CR LF: the CR already ended the line, and the input routines ignore 0
@@ -829,7 +826,7 @@ void SoftSmessageInput(uint8_t maxlength)
       message[length++] = temp;
       if (menue_input_interface == 0)
       {
-         SoftS.write(temp);
+         BTSerial.write(temp);
       }
       else if (menue_input_interface == 1)
       {

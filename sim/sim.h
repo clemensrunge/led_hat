@@ -10,7 +10,7 @@ namespace sim
 enum Port
 {
   UsbSerial,  // Serial, 57600 baud
-  Bluetooth,  // SoftS, 9600 baud
+  Bluetooth,  // Serial1 (HM-10), 9600 baud
   PortCount
 };
 

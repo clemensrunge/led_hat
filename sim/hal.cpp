@@ -1,7 +1,6 @@
 // Emulated Arduino runtime: serial ports, Timer1, NeoPixel output, pins.
 #include "Arduino.h"
 #include "Adafruit_NeoPixel.h"
-#include "SoftwareSerial.h"
 #include "sim.h"
 
 #include <atomic>
@@ -50,7 +49,7 @@ String::String(long n, int base)
 
 /* ---- Serial ---- */
 HardwareSerial Serial;
-SoftwareSerial *SoftwareSerial::instance = nullptr;
+HardwareSerial Serial1;
 
 int SimSerial::available()
 {
@@ -188,8 +187,7 @@ static std::string output[PortCount];
 
 static SimSerial &uart(Port port)
 {
-  // SoftS is a global in the sketch, constructed before main().
-  return port == Bluetooth ? *static_cast<SimSerial *>(SoftwareSerial::instance) : Serial;
+  return port == Bluetooth ? Serial1 : Serial;
 }
 
 void send(Port port, const std::string &data) { uart(port).feed(data.data(), data.size()); }

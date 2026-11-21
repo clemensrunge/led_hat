@@ -291,7 +291,7 @@ public:
 
     if (ImGui::BeginTabBar("ports"))
     {
-      static const char *names[sim::PortCount] = {"Serial (USB, 57600)", "Bluetooth (SoftS, 9600)"};
+      static const char *names[sim::PortCount] = {"Serial (USB, 57600)", "Bluetooth (Serial1, 9600)"};
       for (int p = 0; p < sim::PortCount; p++)
       {
         if (!ImGui::BeginTabItem(names[p])) continue;

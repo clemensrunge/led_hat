@@ -64,8 +64,8 @@ private:
 };
 
 /* ---- Serial ports ---- */
-// Common base for HardwareSerial and SoftwareSerial: an RX queue fed by the
-// simulator and a TX sink that the simulator provides.
+// Common base of the serial ports: an RX queue fed by the simulator and a TX
+// sink that the simulator provides.
 class SimSerial
 {
 public:
@@ -99,6 +99,7 @@ private:
 
 class HardwareSerial : public SimSerial {};
 extern HardwareSerial Serial;
+extern HardwareSerial Serial1;  // the HM-10 Bluetooth module
 
 /* ---- ATmega328 Timer1 registers ---- */
 #define WGM12 3
